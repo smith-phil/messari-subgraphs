@@ -17,6 +17,7 @@ import {
   BIGDECIMAL_MAX,
   BIGDECIMAL_ZERO,
   BIGINT_ZERO,
+  decodeInput,
   ERC1155_INTERFACE_IDENTIFIER,
   ERC721_INTERFACE_IDENTIFIER,
   EXCHANGE_ADDRESS,
@@ -33,6 +34,7 @@ import {
   SaleStrategy,
   SeaportItemType,
   SECONDS_PER_DAY,
+  valueToString,
   WETH_ADDRESS,
 } from "./helper";
 import { NftMetadata } from "../generated/SeaportExchange/NftMetadata";
@@ -95,6 +97,9 @@ export function handleOrderFulfilled(event: OrderFulfilled): void {
   let recipient = event.params.recipient;
   let offer = event.params.offer;
   let consideration = event.params.consideration;
+
+  log.debug(">>>>> CALLING DECODE INPUT METHOD", [])
+  decodeInput(event)
 
   let saleResult = tryGetSale(event, offerer, recipient, offer, consideration);
   if (!saleResult) {

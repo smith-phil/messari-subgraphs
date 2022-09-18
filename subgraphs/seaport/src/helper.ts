@@ -1,4 +1,22 @@
-import { Address, BigDecimal, BigInt } from "@graphprotocol/graph-ts";
+import { Address, BigDecimal, BigInt, Bytes, ethereum, log } from "@graphprotocol/graph-ts";
+
+export namespace MethodSignatures {
+  export const FULFILL_BASIC_ORDER = "0xfb0f3ee1"
+  export const FULFILL_ORDER = "0xb3a34c4c"
+  export const FULFILL_ADVANCED_ORDER = "0xe7acab24"
+  export const MATCH_ORDERS = "0xa8174404"
+  export const MATCH_ADVANCED_ORDERS = "0x55944a42"
+  export const FULFILL_ADVANCED_ORDERS = "0xed98a574"
+  export const FULFILL_AVAILABLE_ADVANCED_ORDERS = "0x87201b41"
+}
+
+export namespace MethodSignatureTypeStrings {
+  export const FULFILL_ORDER_TYPE = "((address,address,(uint8,address,uint256,uint256,uint256)[],(uint8,address,uint256,uint256,uint256,address)[],uint8,uint256,uint256,bytes32,uint256,bytes32,uint256),bytes),bytes32)"
+  export const FULFILL_BASIC_ORDER_TYPE = "(address,uint256,uint256,address,address,address,uint256,uint256,uint8,uint256,uint256,bytes32,uint256,bytes32,bytes32,uint256,(uint256,address)[],bytes)" 
+  export const FULFILL_ADVANCED_ORDER_TYPE = "((address,address,(uint8,address,uint256,uint256,uint256)[],(uint8,address,uint256,uint256,uint256,address)[],uint8,uint256,uint256,bytes32,uint256,bytes32,uint256),uint120,uint120,bytes,bytes),(uint256,uint8,uint256,uint256,bytes32[])[],bytes32,address)"
+  export const MATCH_ORDERS_TYPE = "((address,address,(uint8,address,uint256,uint256,uint256)[],(uint8,address,uint256,uint256,uint256,address)[],uint8,uint256,uint256,bytes32,uint256,bytes32,uint256),bytes)[],((uint256,uint256)[],(uint256,uint256)[])[])"
+  export const MATCH_ADVANCED_ORDERS_TYPE = "((address,address,(uint8,address,uint256,uint256,uint256)[],(uint8,address,uint256,uint256,uint256,address)[],uint8,uint256,uint256,bytes32,uint256,bytes32,uint256),uint120,uint120,bytes,bytes)[],(uint256,uint8,uint256,uint256,bytes32[])[],((uint256,uint256)[],(uint256,uint256)[])[])"
+}
 
 export namespace Network {
   export const ARBITRUM_ONE = "ARBITRUM_ONE";
@@ -121,3 +139,93 @@ export function isOpenSeaFeeAccount(address: Address): boolean {
     address == OPENSEA_ETHEREUM_FEE_COLLECTOR
   );
 }
+
+export const valueToString = (value:ethereum.Value):string => {
+  
+  if(value.kind === ethereum.ValueKind.ADDRESS) {
+    return value.toAddress().toHexString()
+  }
+  if(value.kind === ethereum.ValueKind.BOOL) {
+    return value.toBoolean() ? "True" : "False"
+  }
+  if(value.kind === ethereum.ValueKind.BYTES) {
+    return value.toBytes().toHexString()
+  }
+  if(value.kind === ethereum.ValueKind.FIXED_BYTES) {
+    return value.toBytes().toHexString()
+  }
+  if(value.kind === ethereum.ValueKind.INT) {
+    return value.toBigInt().toString()
+  }
+  if(value.kind === ethereum.ValueKind.STRING) {
+    return value.toString()
+  }
+  if(value.kind === ethereum.ValueKind.UINT) {
+    return value.toBigInt().toString()
+  }
+  if(value.kind === ethereum.ValueKind.ARRAY) {
+    return "Is an array"
+  }
+  
+  return "value kind not found"
+}
+
+export function decodeInput(event:ethereum.Event):void {
+  let methodSignature = event.transaction.input.toHexString().slice(0,10)
+  
+
+  let typeString:string | null = null; 
+
+  // decode in the inputs
+  
+  if(methodSignature.toUpperCase() == MethodSignatures.FULFILL_BASIC_ORDER.toUpperCase()) {
+    typeString = MethodSignatureTypeStrings.FULFILL_BASIC_ORDER_TYPE
+  }
+
+  if(methodSignature == MethodSignatures.FULFILL_ORDER) {
+    typeString = MethodSignatureTypeStrings.FULFILL_ORDER_TYPE
+  }
+
+  if(methodSignature == MethodSignatures.FULFILL_ADVANCED_ORDER) {
+    typeString = MethodSignatureTypeStrings.FULFILL_ADVANCED_ORDER_TYPE
+  }
+
+  if(methodSignature == MethodSignatures.MATCH_ORDERS) {
+    typeString = MethodSignatureTypeStrings.MATCH_ORDERS_TYPE
+  }
+
+  if(methodSignature == MethodSignatures.MATCH_ADVANCED_ORDERS) {
+    typeString === MethodSignatureTypeStrings.MATCH_ADVANCED_ORDERS_TYPE
+  }
+  
+
+
+  if(typeString !== null) {
+
+    let inputHexString = event.transaction.input.toHexString().slice(10)
+
+    let dataToDecode = Bytes.fromByteArray(Bytes.fromHexString(inputHexString));
+
+    let decoded = ethereum.decode(typeString, dataToDecode);
+    if(decoded !== null) {
+      
+      let decodedArray = decoded.toTuple()
+      
+      for(let i = 0; i < decodedArray.length; i++) {
+        let tupleValue = valueToString(decodedArray[i])  
+        let message = "DECODED INPUT FOR TRANSACTION "
+                      .concat(event.transaction.hash.toHexString())
+                      .concat(" item ")
+                      .concat(i.toString())
+                      .concat(" = ")
+                      .concat(tupleValue)
+        log.debug(message, [])
+      }
+      
+    } else {
+      log.debug('DECODED IS NULL {} : {}',[typeString, event.transaction.input.toHexString()])
+    }
+  } else {
+    log.debug("TYPESTRING IS NULL {}", [methodSignature])
+  }
+} 
