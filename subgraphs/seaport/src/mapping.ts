@@ -9,6 +9,7 @@ import {
   CollectionDailySnapshot,
   Marketplace,
   MarketplaceDailySnapshot,
+  _OrderFulfillment,
   Trade,
   _Item,
 } from "../generated/schema";
@@ -17,7 +18,8 @@ import {
   BIGDECIMAL_MAX,
   BIGDECIMAL_ZERO,
   BIGINT_ZERO,
-  orderFulfillmentType,
+  orderFulfillmentMethod,
+  tradeStrategy,
   ERC1155_INTERFACE_IDENTIFIER,
   ERC721_INTERFACE_IDENTIFIER,
   EXCHANGE_ADDRESS,
@@ -31,10 +33,8 @@ import {
   min,
   Network,
   NftStandard,
-  SaleStrategy,
   SeaportItemType,
   SECONDS_PER_DAY,
-  valueToString,
   WETH_ADDRESS,
 } from "./helper";
 import { NftMetadata } from "../generated/SeaportExchange/NftMetadata";
@@ -97,10 +97,6 @@ export function handleOrderFulfilled(event: OrderFulfilled): void {
   let recipient = event.params.recipient;
   let offer = event.params.offer;
   let consideration = event.params.consideration;
-  
-  let fulfillmentType = orderFulfillmentType(event);
-  fulfillmentType == null ? 'null' : fulfillmentType;
-  log.debug(">>>>> orderFilfillment type for {} is {} ", [event.transaction.hash.toHexString(), fulfillmentType!])
 
   let saleResult = tryGetSale(event, offerer, recipient, offer, consideration);
   if (!saleResult) {
@@ -150,11 +146,19 @@ export function handleOrderFulfilled(event: OrderFulfilled): void {
     trade.tokenId = saleResult.nfts.tokenIds[i];
     trade.priceETH = priceETH;
     trade.amount = saleResult.nfts.amounts[i];
-    // TODO: cannot tell?
-    trade.strategy = SaleStrategy.STANDARD_SALE; // basic order is standard sale
+    // if it is a basic order then STANDARD_SALE
+    // otherwise ANY_ITEM_FROM_SET. 
+    // TODO: ANY_ITEM_FROM_SET correct strategy? Cannot find docs on how to decide
+    trade.strategy = tradeStrategy(event);
     trade.buyer = buyer;
     trade.seller = seller;
     trade.save();
+
+    // Save details of how trade was fulfilled
+    let orderFulfillment = new _OrderFulfillment(tradeID);
+    orderFulfillment.trade = tradeID;
+    orderFulfillment.orderFulfillment = orderFulfillmentMethod(event)
+    orderFulfillment.save()
   }
 
   //
