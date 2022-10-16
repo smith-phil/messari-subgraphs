@@ -318,7 +318,7 @@ type _OrderFulfillment @entity {
   trade: Trade!
 
   " The order filfillment method"
-  _orderFulfillmentMethod: _OrderFulfillmentMethod
+  orderFulfillmentMethod: _OrderFulfillmentMethod
 }
 
 " A helper utility entity that works as a set for deduplication purpose. "
