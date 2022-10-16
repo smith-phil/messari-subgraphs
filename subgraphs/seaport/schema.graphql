@@ -68,6 +68,7 @@ enum _BasicOrderRouteType {
     ERC1155_TO_ERC20
 }
 
+" Order fulfillment methods for trades, helps to identify strategy"
 enum _OrderFulfillmentMethod {
     " Basic order fulfilled using one of the _BasicOrderRouteType routes"
     FULFILL_BASIC_ORDER 
@@ -317,7 +318,7 @@ type _OrderFulfillment @entity {
   trade: Trade!
 
   " The order filfillment method"
-  orderFulfillment: _OrderFulfillmentMethod!
+  _orderFulfillmentMethod: _OrderFulfillmentMethod
 }
 
 " A helper utility entity that works as a set for deduplication purpose. "
