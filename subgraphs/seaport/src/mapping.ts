@@ -17,7 +17,7 @@ import {
   BIGDECIMAL_MAX,
   BIGDECIMAL_ZERO,
   BIGINT_ZERO,
-  decodeInput,
+  orderFulfillmentType,
   ERC1155_INTERFACE_IDENTIFIER,
   ERC721_INTERFACE_IDENTIFIER,
   isERC1155,
@@ -96,9 +96,10 @@ export function handleOrderFulfilled(event: OrderFulfilled): void {
   let recipient = event.params.recipient;
   let offer = event.params.offer;
   let consideration = event.params.consideration;
-
-  log.debug(">>>>> CALLING DECODE INPUT METHOD", [])
-  decodeInput(event)
+  
+  let fulfillmentType = orderFulfillmentType(event);
+  fulfillmentType == null ? 'null' : fulfillmentType;
+  log.debug(">>>>> orderFilfillment type for {} is {} ", [event.transaction.hash.toHexString(), fulfillmentType!])
 
   let saleResult = tryGetSale(event, offerer, recipient, offer, consideration);
   if (!saleResult) {
@@ -149,7 +150,7 @@ export function handleOrderFulfilled(event: OrderFulfilled): void {
     trade.priceETH = priceETH;
     trade.amount = saleResult.nfts.amounts[i];
     // TODO: cannot tell?
-    trade.strategy = SaleStrategy.STANDARD_SALE;
+    trade.strategy = SaleStrategy.STANDARD_SALE; // basic order is standard sale
     trade.buyer = buyer;
     trade.seller = seller;
     trade.save();
