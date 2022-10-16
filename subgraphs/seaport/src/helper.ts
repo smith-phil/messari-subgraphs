@@ -182,7 +182,7 @@ export const valueToString = (value:ethereum.Value):string => {
   return "value kind not found"
 }
 
-export function orderFulfillmentType(event:ethereum.Event):string | null {
+export function orderFulfillmentMethod(event:ethereum.Event):string | null {
   let methodSignature = event.transaction.input.toHexString().slice(0,10).toUpperCase()
 
   let fulfillmentType: string | null = null
@@ -216,3 +216,39 @@ export function orderFulfillmentType(event:ethereum.Event):string | null {
 
   return fulfillmentType;
 }
+export function tradeStrategy(event:ethereum.Event):string {
+  let methodSignature = event.transaction.input.toHexString().slice(0,10).toUpperCase()
+
+  let strategy = SaleStrategy.STANDARD_SALE; // default to this
+  if(methodSignature == MethodSignatures.FULFILL_BASIC_ORDER) {
+    strategy = SaleStrategy.STANDARD_SALE
+  }
+
+  if(methodSignature == MethodSignatures.FULFILL_ORDER) {
+    strategy = SaleStrategy.ANY_ITEM_FROM_SET
+  }
+
+  if(methodSignature == MethodSignatures.FULFILL_ADVANCED_ORDER) {
+    strategy = SaleStrategy.ANY_ITEM_FROM_SET
+  }
+
+  if(methodSignature == MethodSignatures.FULFILL_AVAILABLE_ORDERS) {
+    strategy = SaleStrategy.ANY_ITEM_FROM_SET
+  }
+  
+  if(methodSignature == MethodSignatures.FULFILL_AVAILABLE_ADVANCED_ORDERS) {
+    strategy = SaleStrategy.ANY_ITEM_FROM_SET
+  }
+
+  if(methodSignature == MethodSignatures.MATCH_ORDERS) {
+    strategy = SaleStrategy.ANY_ITEM_FROM_SET
+  }
+
+  if(methodSignature == MethodSignatures.MATCH_ADVANCED_ORDERS) {
+    strategy = SaleStrategy.ANY_ITEM_FROM_SET
+  }
+
+  return strategy;
+}
+
+
