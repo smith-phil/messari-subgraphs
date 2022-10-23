@@ -28,6 +28,8 @@ export namespace MethodSignatureTypeStrings {
   export const MATCH_ADVANCED_ORDERS_TYPE = "((address,address,(uint8,address,uint256,uint256,uint256)[],(uint8,address,uint256,uint256,uint256,address)[],uint8,uint256,uint256,bytes32,uint256,bytes32,uint256),uint120,uint120,bytes,bytes)[],(uint256,uint8,uint256,uint256,bytes32[])[],((uint256,uint256)[],(uint256,uint256)[])[])"
 }
 
+export const PROTOCOL_SCHEMA_VERSION = "1.0.0";
+
 export namespace Network {
   export const ARBITRUM_ONE = "ARBITRUM_ONE";
   export const ARWEAVE_MAINNET = "ARWEAVE_MAINNET";

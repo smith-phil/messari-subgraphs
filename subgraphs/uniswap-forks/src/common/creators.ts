@@ -1,5 +1,5 @@
 // import { log } from "@graphprotocol/graph-ts";
-import { BigInt, Address, store, ethereum } from "@graphprotocol/graph-ts";
+import { BigInt, Address, store, ethereum, log } from "@graphprotocol/graph-ts";
 import {
   Account,
   _HelperStore,
@@ -22,7 +22,7 @@ import {
 } from "./constants";
 import {
   getLiquidityPool,
-  getOrCreateDex,
+  getOrCreateProtocol,
   getOrCreateTransfer,
   getOrCreateToken,
   getOrCreateLPToken,
@@ -78,7 +78,7 @@ export function createLiquidityPool(
   token0Address: string,
   token1Address: string
 ): void {
-  const protocol = getOrCreateDex();
+  const protocol = getOrCreateProtocol();
 
   // create the tokens and tokentracker
   const token0 = getOrCreateToken(token0Address);
@@ -244,12 +244,27 @@ export function createSwapHandleVolumeAndFees(
   amount0Out: BigInt,
   amount1Out: BigInt
 ): void {
-  const protocol = getOrCreateDex();
+  const protocol = getOrCreateProtocol();
   const pool = getLiquidityPool(event.address.toHexString());
   const poolAmounts = getLiquidityPoolAmounts(event.address.toHexString());
 
   const token0 = getOrCreateToken(pool.inputTokens[0]);
   const token1 = getOrCreateToken(pool.inputTokens[1]);
+
+  if (amount0In != BIGINT_ZERO && amount1In != BIGINT_ZERO) {
+    log.warning(
+      "Two input tokens given in swap - Transaction: " +
+        event.transaction.hash.toHexString() +
+        " Log Index: " +
+        event.logIndex.toString() +
+        " Token0: " +
+        token0.id +
+        " Token1: " +
+        token1.id,
+      []
+    );
+    return;
+  }
 
   // totals for volume updates
   const amount0Total = amount0Out.plus(amount0In);
