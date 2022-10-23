@@ -1,6 +1,6 @@
 {
   "name": "seaport",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "scripts": {
     "codegen": "graph codegen",
     "prepare:yaml": "mustache protocols/${npm_config_protocol}/config/deployments/${npm_config_id}/configurations.json protocols/${npm_config_protocol}/config/templates/${npm_config_template} > subgraph.yaml",
