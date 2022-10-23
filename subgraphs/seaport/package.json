@@ -1,6 +1,6 @@
 {
   "name": "seaport",
-  "license": "UNLICENSED",
+  "version": "1.0.1",
   "scripts": {
     "format": "npx prettier --write .",
     "codegen": "graph codegen",
