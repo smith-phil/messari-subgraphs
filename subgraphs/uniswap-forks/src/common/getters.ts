@@ -1,8 +1,9 @@
 // import { log } from "@graphprotocol/graph-ts";
-import { Address, BigInt, ethereum } from "@graphprotocol/graph-ts";
+import { Address, BigInt, ethereum, log } from "@graphprotocol/graph-ts";
 import { NetworkConfigs } from "../../configurations/configure";
 import { TokenABI } from "../../generated/Factory/TokenABI";
 import {
+  Account,
   DexAmmProtocol,
   LiquidityPool,
   UsageMetricsDailySnapshot,
@@ -16,6 +17,10 @@ import {
   RewardToken,
   LiquidityPoolHourlySnapshot,
   UsageMetricsHourlySnapshot,
+  Position,
+  PositionSnapshot,
+  _PositionCounter,
+  Stat,
 } from "../../generated/schema";
 import { Versions } from "../versions";
 import {
@@ -27,8 +32,89 @@ import {
   RewardTokenType,
   BIGINT_ZERO,
   SECONDS_PER_HOUR,
+  INT_ONE,
 } from "./constants";
-import { createPoolFees } from "./creators";
+import { createPoolFees, createStat } from "./creators";
+
+
+/**
+ * Called when a deposit or withdrawl is made into a LiquidityPool
+ * @param event 
+ * @param amount0 
+ * @param amount1 
+ */
+export function getOrCreatePosition(event: ethereum.Event):Position {
+  // Find the position if one exists
+  // Create the Id
+  // Load from the Id
+  // If not create a new position
+  const pool = getLiquidityPool(
+    event.address.toHexString(),
+    event.block.number
+  );
+  const protocol = getOrCreateProtocol();
+
+  const account = getOrCreateAccount(event);
+
+  const counterId = account.id
+                        .concat("-")
+                        .concat(pool.id)
+  let counter = _PositionCounter.load(counterId);                      
+  // Open position always ends with zero
+  if(!counter) {
+    counter = new _PositionCounter(counterId)
+    counter.nextCount = INT_ZERO;
+    counter.save();
+  }
+  const positionId = account.id
+                            .concat("-")
+                            .concat(pool.id)
+                            .concat("-")
+                            .concat(counter.nextCount.toString());
+  let position = Position.load(positionId);
+  if(!position) {
+    position = new Position(positionId);
+    position.account = account.id
+    position.pool = pool.id;
+    position.hashOpened = event.transaction.hash.toHexString();
+    position.blockNumberOpened = event.block.number;
+    position.timestampOpened = event.block.timestamp;
+    position.depositCount = INT_ZERO;
+    position.inputTokenBalances = new Array<BigInt>(pool.inputTokens.length).map<BigInt>(()=>BIGINT_ZERO);
+    position.outputTokenBalance = BIGINT_ZERO;
+    position.withdrawCount = INT_ZERO;
+    position.save(); 
+    pool.positionCount += INT_ONE;
+    pool.openPositionCount += INT_ONE; 
+    account.openPositionCount += INT_ONE;
+    account.positionCount += INT_ONE;
+    account.save();
+    protocol.openPositionCount += INT_ONE;
+    protocol.cumulativePositionCount += INT_ONE;
+    protocol.cumulativeUniqueLPs += INT_ONE;
+    protocol.save();  
+  } 
+
+  return position;
+  
+}
+
+export function getOrCreateAccount(event:ethereum.Event): Account {
+  let transfer = getOrCreateTransfer(event);
+
+  let account = Account.load(transfer.sender!)
+  if(!account) {
+    account = new Account(transfer.sender!)
+    account.positionCount = INT_ZERO;
+    account.openPositionCount = INT_ZERO;
+    account.closedPositionCount = INT_ZERO;
+    account.depositCount = INT_ZERO;
+    account.withdrawCount = INT_ZERO;
+    account.swapCount = INT_ZERO;
+    account.save()
+  }
+  return account;
+}
 
 export function getOrCreateProtocol(): DexAmmProtocol {
   let protocol = DexAmmProtocol.load(NetworkConfigs.getFactoryAddress());
@@ -43,6 +129,12 @@ export function getOrCreateProtocol(): DexAmmProtocol {
     protocol.cumulativeProtocolSideRevenueUSD = BIGDECIMAL_ZERO;
     protocol.cumulativeTotalRevenueUSD = BIGDECIMAL_ZERO;
     protocol.cumulativeUniqueUsers = INT_ZERO;
+    protocol.cumulativePositionCount = INT_ZERO;
+    protocol.cumulativeUniqueLPs = INT_ZERO;
+    protocol.cumulativeUniqueTraders = INT_ZERO;
+    protocol.openPositionCount = INT_ZERO;
+    protocol.cumulativePositionCount = INT_ZERO;
+
     protocol.network = NetworkConfigs.getNetwork();
     protocol.type = ProtocolType.EXCHANGE;
     protocol.totalPoolCount = INT_ZERO;
@@ -105,6 +197,7 @@ export function getOrCreateTransfer(event: ethereum.Event): _Transfer {
 export function getOrCreateUsageMetricDailySnapshot(
   event: ethereum.Event
 ): UsageMetricsDailySnapshot {
+  const protocol = getOrCreateProtocol();
   // Number of days since Unix epoch
   const id = event.block.timestamp.toI32() / SECONDS_PER_DAY;
   const dayId = id.toString();
@@ -118,14 +211,21 @@ export function getOrCreateUsageMetricDailySnapshot(
     usageMetrics.dailyActiveUsers = INT_ZERO;
     usageMetrics.cumulativeUniqueUsers = INT_ZERO;
     usageMetrics.dailyTransactionCount = INT_ZERO;
-    usageMetrics.dailyDepositCount = INT_ZERO;
-    usageMetrics.dailyWithdrawCount = INT_ZERO;
-    usageMetrics.dailySwapCount = INT_ZERO;
+    const depositStatId = protocol.id.concat("-deposit-").concat(dayId);
+    let depositStat =  createStat(depositStatId);
+    usageMetrics.depositStats = depositStat.id;
+
+    const withdrawStatId = protocol.id.concat("-withdraw-").concat(dayId);
+    let withdrawStat =  createStat(withdrawStatId);
+    usageMetrics.withdrawStats = withdrawStat.id;
+
+    const swapStatId = protocol.id.concat("-swap-").concat(dayId);
+    let swapStat = createStat(swapStatId);
+    usageMetrics.swapStats = swapStat.id
 
     usageMetrics.blockNumber = event.block.number;
     usageMetrics.timestamp = event.block.timestamp;
 
-    const protocol = getOrCreateProtocol();
     usageMetrics.totalPoolCount = protocol.totalPoolCount;
 
     usageMetrics.save();
@@ -136,6 +236,7 @@ export function getOrCreateUsageMetricDailySnapshot(
 export function getOrCreateUsageMetricHourlySnapshot(
   event: ethereum.Event
 ): UsageMetricsHourlySnapshot {
+  const protocol = getOrCreateProtocol();
   // Number of days since Unix epoch
   const hour = event.block.timestamp.toI32() / SECONDS_PER_HOUR;
   const hourId = hour.toString();
@@ -149,9 +250,13 @@ export function getOrCreateUsageMetricHourlySnapshot(
 
     usageMetrics.hourlyActiveUsers = INT_ZERO;
     usageMetrics.cumulativeUniqueUsers = INT_ZERO;
-    usageMetrics.hourlyTransactionCount = INT_ZERO;
+
     usageMetrics.hourlyDepositCount = INT_ZERO;
     usageMetrics.hourlyWithdrawCount = INT_ZERO;
+
+    usageMetrics.hourlyTransactionCount = INT_ZERO;
+    usageMetrics.hourlyWithdrawCount = INT_ZERO;
+
     usageMetrics.hourlySwapCount = INT_ZERO;
 
     usageMetrics.blockNumber = event.block.number;
@@ -171,6 +276,10 @@ export function getOrCreateLiquidityPoolDailySnapshot(
   let poolMetrics = LiquidityPoolDailySnapshot.load(
     event.address.toHexString().concat("-").concat(dayId)
   );
+  let depositStatId = event.address.toHexString().concat("-deposit-").concat(dayId);
+  let withdrawStatId = event.address.toHexString().concat("-withdraw-").concat(dayId);
+  let swapStatId = event.address.toHexString().concat("-swap-").concat(dayId);
+
 
   if (!poolMetrics) {
     poolMetrics = new LiquidityPoolDailySnapshot(
@@ -195,6 +304,12 @@ export function getOrCreateLiquidityPoolDailySnapshot(
     poolMetrics.blockNumber = event.block.number;
     poolMetrics.timestamp = event.block.timestamp;
 
+    let depositStatId = event.address.toHexString().concat("-deposit-").concat(dayId);
+    let withdrawStatId = event.address.toHexString().concat("-withdraw-").concat(dayId);
+    let swapStatId = event.address.toHexString().concat("-swap-").concat(dayId);
+    poolMetrics.depositStats = createStat(depositStatId).id;
+    poolMetrics.withdrawStats = createStat(withdrawStatId).id;
+    poolMetrics.swapStats = createStat(swapStatId).id;
     poolMetrics.save();
   }
 

@@ -14,6 +14,7 @@ import {
   handleTransferBurn,
   handleTransferMint,
   handleTransferToPoolBurn,
+  handleTransferPosition
 } from "../common/handlers";
 import {
   updateFinancials,
@@ -74,7 +75,18 @@ export function handleTransfer(event: Transfer): void {
       event.params.value,
       event.params.from.toHexString()
     );
+    
   }
+
+  // At this point it's an account to account transfer. Update the positions.
+  handleTransferPosition(
+    event, 
+    pool, 
+    event.params.value, 
+    event.params.from.toHexString(),
+    event.params.to.toHexString()
+  );
+
 }
 
 // Handle Sync event.

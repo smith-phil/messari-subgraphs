@@ -1,10 +1,14 @@
-import { Address, BigDecimal, BigInt, ethereum } from "@graphprotocol/graph-ts";
+import { Address, BigDecimal, BigInt, ethereum, log, store } from "@graphprotocol/graph-ts";
 import {
   Account,
   ActiveAccount,
+  Deposit,
   DexAmmProtocol,
   LiquidityPool,
+  Stat,
+  Swap,
   Token,
+  Withdraw,
   _HelperStore,
 } from "../../generated/schema";
 import {
@@ -22,6 +26,7 @@ import {
 } from "./getters";
 import {
   BIGDECIMAL_ZERO,
+  BIGINT_ONE,
   BIGINT_ZERO,
   DEFAULT_DECIMALS,
   INT_ONE,
@@ -30,13 +35,16 @@ import {
   SECONDS_PER_DAY,
   SECONDS_PER_HOUR,
   UsageType,
+  DepositValueEntitySuffix,
+  StatValueEntitySuffix
 } from "./constants";
-import { convertTokenToDecimal, percToDec } from "./utils/utils";
+import { convertTokenToDecimal, percToDec, BigDecimalArray } from "./utils/utils";
 import {
   findUSDPricePerToken,
   updateNativeTokenPriceInUSD,
 } from "../price/price";
 import { NetworkConfigs } from "../../configurations/configure";
+import { createStat } from "./creators";
 
 // Update FinancialsDailySnapshots entity
 // Updated on Swap, Burn, and Mint events.
@@ -77,23 +85,24 @@ export function updateUsageMetrics(
   usageMetricsHourly.timestamp = event.block.timestamp;
   usageMetricsHourly.hourlyTransactionCount += INT_ONE;
 
-  if (usageType == UsageType.DEPOSIT) {
-    usageMetricsDaily.dailyDepositCount += INT_ONE;
-    usageMetricsHourly.hourlyDepositCount += INT_ONE;
-  } else if (usageType == UsageType.WITHDRAW) {
-    usageMetricsDaily.dailyWithdrawCount += INT_ONE;
-    usageMetricsHourly.hourlyWithdrawCount += INT_ONE;
-  } else if (usageType == UsageType.SWAP) {
-    usageMetricsDaily.dailySwapCount += INT_ONE;
-    usageMetricsHourly.hourlySwapCount += INT_ONE;
-  }
-
   // Number of days since Unix epoch
   const day = event.block.timestamp.toI32() / SECONDS_PER_DAY;
   const hour = event.block.timestamp.toI32() / SECONDS_PER_HOUR;
 
   const dayId = day.toString();
   const hourId = hour.toString();
+
+  if (usageType == UsageType.DEPOSIT) {
+
+    usageMetricsHourly.hourlyDepositCount += INT_ONE;
+    usageMetricsDaily.depositStats = updateDepositMetricsUSD(protocol.id, event);
+  } else if (usageType == UsageType.WITHDRAW) {
+    usageMetricsHourly.hourlyWithdrawCount += INT_ONE;
+    usageMetricsDaily.withdrawStats = updateWithdrawMetricsUSD(protocol.id, event);
+  } else if (usageType == UsageType.SWAP) {
+    usageMetricsHourly.hourlySwapCount += INT_ONE;
+    usageMetricsDaily.swapStats = updateSwapMetricsUSD(protocol.id, event);
+  }
 
   // Combine the id and the user address to generate a unique user id for the day
   const dailyActiveAccountId = from.concat("-").concat(dayId);
@@ -116,6 +125,12 @@ export function updateUsageMetrics(
   if (!account) {
     account = new Account(from);
     protocol.cumulativeUniqueUsers += INT_ONE;
+    account.positionCount = INT_ZERO;
+    account.openPositionCount = INT_ZERO;
+    account.closedPositionCount = INT_ZERO;
+    account.depositCount = INT_ZERO;
+    account.withdrawCount = INT_ZERO;
+    account.swapCount = INT_ZERO;
     account.save();
   }
   usageMetricsDaily.cumulativeUniqueUsers = protocol.cumulativeUniqueUsers;
@@ -125,6 +140,127 @@ export function updateUsageMetrics(
   usageMetricsHourly.save();
   protocol.save();
 }
+
+/**
+ * Updates daily deposit usage metrics stats for a given day
+ * @param event 
+ * @returns string the id of the stat entity for the given day
+ */
+function updateDepositMetricsUSD(statTypeId:string, event: ethereum.Event): string {
+
+  // Number of days since Unix epoch
+  const day = event.block.timestamp.toI32() / SECONDS_PER_DAY;
+  const dayId = day.toString();
+
+  const statId = statTypeId.concat("-deposit-").concat(dayId);
+  let stat = Stat.load(statId);
+  if (!stat) {
+    stat = createStat(statId)
+  }
+  const transactionHash = event.transaction.hash.toHexString();
+  const deposit = Deposit.load(
+    transactionHash.concat("-").concat(event.logIndex.toString())
+  );
+
+  if (deposit && deposit.amountUSD) {
+    const amountUSD = deposit.amountUSD;
+
+    let valuesUSD = stat._valuesUSD;
+    valuesUSD.push(amountUSD);
+    stat._valuesUSD = valuesUSD;
+    stat.meanUSD = BigDecimalArray.mean(valuesUSD);
+    stat.medianUSD = BigDecimalArray.median(valuesUSD);
+    stat.maxUSD = BigDecimalArray.maxValue(valuesUSD);
+    stat.minUSD = BigDecimalArray.minValue(valuesUSD);
+  }
+
+  stat.count = stat.count.plus(BIGINT_ONE);
+  stat.save();
+  return stat.id;
+}
+
+
+/*
+ * Updates withdraw usage metrics stats for the day or hour
+ * @param timeStampId
+ * @param protocolId
+ * @param valuesSuffix
+ * @param event 
+ * @returns string the id of the stat entity 
+ */
+function updateWithdrawMetricsUSD(statTypeId: string, event: ethereum.Event): string {
+
+  const day = event.block.timestamp.toI32() / SECONDS_PER_DAY;
+  const dayId = day.toString();
+
+  const statId = statTypeId.concat("-withdraw-").concat(dayId);
+  let stat = Stat.load(statId);
+  if (!stat) {
+    stat = createStat(statId);
+  }
+  const transactionHash = event.transaction.hash.toHexString();
+  const withdraw = Withdraw.load(
+    transactionHash.concat("-").concat(event.logIndex.toString())
+  );
+
+  if (withdraw && withdraw.amountUSD) {
+    const amountUSD = withdraw.amountUSD;
+    let valuesUSD = stat._valuesUSD;
+    valuesUSD.push(amountUSD);
+    stat.meanUSD = BigDecimalArray.mean(valuesUSD);
+    stat.medianUSD = BigDecimalArray.median(valuesUSD);
+    stat.maxUSD = BigDecimalArray.maxValue(valuesUSD);
+    stat.minUSD = BigDecimalArray.minValue(valuesUSD);
+  }
+
+  stat.count = stat.count.plus(BIGINT_ONE);
+  stat.save();
+  return stat.id;
+}
+
+/*
+ * Updates swap usage metrics stats for the day or hour
+ * @param timeStampId
+ * @param protocolId
+ * @param valuesSuffix
+ * @param event 
+ * @returns string the id of the stat entity 
+ */
+function updateSwapMetricsUSD(statTypeId: string, event: ethereum.Event): string {
+
+  const day = event.block.timestamp.toI32() / SECONDS_PER_DAY;
+  const dayId = day.toString();
+
+  const statId = statTypeId.concat("-swap-").concat(dayId);
+  let stat = Stat.load(statId);
+  if (!stat) {
+    stat = createStat(statId);
+  }
+  const transactionHash = event.transaction.hash.toHexString();
+  const swap = Swap.load(
+    transactionHash.concat("-").concat(event.logIndex.toString())
+  );
+
+  if (swap && swap.amountInUSD) {
+    const amountUSD = swap.amountInUSD
+    let valuesUSD = stat._valuesUSD;
+    valuesUSD.push(amountUSD)
+    stat._valuesUSD = valuesUSD;
+    stat.count = stat.count.plus(BIGINT_ONE);
+    const meanUsd = BigDecimalArray.mean(valuesUSD);
+    stat.meanUSD = meanUsd;
+    stat.medianUSD = BigDecimalArray.median(valuesUSD);
+    stat.maxUSD = BigDecimalArray.maxValue(valuesUSD);
+    stat.minUSD = BigDecimalArray.minValue(valuesUSD);
+  }
+
+  stat.count = stat.count.plus(BIGINT_ONE);
+  stat.save();
+  return stat.id;
+}
+
+
+
 
 // Update UsagePoolDailySnapshot entity
 // Updated on Swap, Burn, and Mint events.
@@ -137,6 +273,8 @@ export function updatePoolMetrics(event: ethereum.Event): void {
     event.address.toHexString(),
     event.block.number
   );
+
+
 
   // Update the block number and timestamp to that of the last transaction of that day
   poolMetricsDaily.totalValueLockedUSD = pool.totalValueLockedUSD;
@@ -174,6 +312,9 @@ export function updatePoolMetrics(event: ethereum.Event): void {
   poolMetricsHourly.cumulativeProtocolSideRevenueUSD =
     pool.cumulativeProtocolSideRevenueUSD;
 
+  poolMetricsDaily.depositStats = updateDepositMetricsUSD(pool.id, event);
+  poolMetricsDaily.withdrawStats = updateWithdrawMetricsUSD(pool.id, event);
+  poolMetricsDaily.swapStats = updateSwapMetricsUSD(pool.id, event)
   poolMetricsDaily.save();
   poolMetricsHourly.save();
 }
@@ -223,6 +364,15 @@ export function updateInputTokenBalances(
   poolAmounts.inputTokenBalances = [tokenDecimal0, tokenDecimal1];
   pool.inputTokenBalances = [reserve0, reserve1];
 
+  const nativeToken = updateNativeTokenPriceInUSD();
+
+  const token0PriceUSD = findUSDPricePerToken(token0, nativeToken, blockNumber);
+  const token1PriceUSD = findUSDPricePerToken(token1, nativeToken, blockNumber);
+
+  let token0BalanceUSD = token0PriceUSD.times(convertTokenToDecimal(reserve0, token0.decimals));
+  let token1BalanceUSD = token1PriceUSD.times(convertTokenToDecimal(reserve1, token1.decimals));
+
+  pool.inputTokenBalancesUSD = [token0BalanceUSD, token1BalanceUSD];
   poolAmounts.save();
   pool.save();
 }
@@ -425,4 +575,16 @@ export function updateDepositHelper(poolAddress: Address): void {
   const poolDeposits = _HelperStore.load(poolAddress.toHexString())!;
   poolDeposits.valueInt = poolDeposits.valueInt + INT_ONE;
   poolDeposits.save();
+}
+
+export function updateMetricsDepositsHelper(event: ethereum.Event, valueUSD: BigDecimal): void {
+  const protocol = getOrCreateProtocol();
+
+  // Number of days since Unix epoch
+  const day = event.block.timestamp.toI32() / SECONDS_PER_DAY;
+  const hour = event.block.timestamp.toI32() / SECONDS_PER_HOUR;
+
+  const dayId = day.toString();
+  const hourId = hour.toString();
+
 }
